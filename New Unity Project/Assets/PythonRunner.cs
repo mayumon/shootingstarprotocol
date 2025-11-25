@@ -1,13 +1,14 @@
+using System;
 using System.Diagnostics;
-using System.Threading;
 using System.Globalization;
+using System.Threading;
 using UnityEngine;
 
 public class PythonRunner : MonoBehaviour
 {
     public string pythonExe = "py";
-    public string scriptPath = "hand_control.py";
     public CameraControl cameraControl;
+    public Shooter shooter;
 
     private Process pythonProcess;
     private Thread outputThread;
@@ -16,6 +17,9 @@ public class PythonRunner : MonoBehaviour
     private volatile float latestVx = 0f;
     private volatile float latestVy = 0f;
     private volatile bool hasNewVector = false;
+
+    private volatile float latestShotStrength = 0f;
+    private volatile bool shotTriggered = false;
 
     void Start()
     {
@@ -29,6 +33,12 @@ public class PythonRunner : MonoBehaviour
             cameraControl.ApplyVector(latestVx, latestVy);
             hasNewVector = false;
         }
+
+        if (shotTriggered && shooter != null)
+        {
+            shooter.Shoot(latestShotStrength);
+            shotTriggered = false;
+        }
     }
 
     void OnApplicationQuit()
@@ -36,46 +46,62 @@ public class PythonRunner : MonoBehaviour
         StopPython();
     }
 
-    void StartPython()
+    private void StartPython()
     {
         pythonProcess = new Process();
         pythonProcess.StartInfo.FileName = pythonExe;
+        
+        pythonProcess.StartInfo.WorkingDirectory = Application.dataPath;
+        pythonProcess.StartInfo.Arguments = "hand_control.py";
 
-        string fullPath = System.IO.Path.Combine(Application.dataPath, scriptPath);
-        pythonProcess.StartInfo.Arguments = "\"" + fullPath + "\"";
-
-        pythonProcess.StartInfo.CreateNoWindow = true;
         pythonProcess.StartInfo.UseShellExecute = false;
         pythonProcess.StartInfo.RedirectStandardOutput = true;
         pythonProcess.StartInfo.RedirectStandardError = true;
+        pythonProcess.StartInfo.CreateNoWindow = true;
 
         pythonProcess.Start();
 
-        UnityEngine.Debug.Log("PYTHON STARTED: " + fullPath);
+        UnityEngine.Debug.Log("PYTHON STARTED in: " + pythonProcess.StartInfo.WorkingDirectory);
 
-        outputThread = new Thread(ReadOutput) { IsBackground = true };
+        outputThread = new Thread(ReadOutput);
+        outputThread.IsBackground = true;
         outputThread.Start();
 
-        errorThread = new Thread(ReadError) { IsBackground = true };
+        errorThread = new Thread(ReadError);
+        errorThread.IsBackground = true;
         errorThread.Start();
     }
 
-    void ReadOutput()
+    private void ReadOutput()
     {
         var ci = CultureInfo.InvariantCulture;
 
-        while (!pythonProcess.HasExited)
+        while (pythonProcess != null && !pythonProcess.HasExited)
         {
             string line = pythonProcess.StandardOutput.ReadLine();
             if (string.IsNullOrEmpty(line))
                 continue;
 
-            UnityEngine.Debug.Log("PY: " + line);
+            UnityEngine.Debug.Log("PY OUT: " + line);
 
-            string[] parts = line.Split(' ');
-            if (parts.Length >= 2 &&
-                float.TryParse(parts[0], NumberStyles.Float, ci, out float vx) &&
-                float.TryParse(parts[1], NumberStyles.Float, ci, out float vy))
+            // ---------- SHOT ----------
+            if (line.StartsWith("SHOT"))
+            {
+                string[] parts = line.Split(' ');
+                if (parts.Length >= 2 &&
+                    float.TryParse(parts[1], NumberStyles.Float, ci, out float s))
+                {
+                    latestShotStrength = s;
+                    shotTriggered = true;
+                }
+                continue;
+            }
+
+            // ---------- VECTORS ----------
+            string[] xy = line.Split(' ');
+            if (xy.Length == 2 &&
+                float.TryParse(xy[0], NumberStyles.Float, ci, out float vx) &&
+                float.TryParse(xy[1], NumberStyles.Float, ci, out float vy))
             {
                 latestVx = vx;
                 latestVy = vy;
@@ -84,27 +110,25 @@ public class PythonRunner : MonoBehaviour
         }
     }
 
-    void ReadError()
+    private void ReadError()
     {
-        while (!pythonProcess.HasExited)
+        while (pythonProcess != null && !pythonProcess.HasExited)
         {
-            string line = pythonProcess.StandardError.ReadLine();
-            if (string.IsNullOrEmpty(line))
-                continue;
-
-            UnityEngine.Debug.LogError("PY ERR: " + line);
+            string err = pythonProcess.StandardError.ReadLine();
+            if (!string.IsNullOrEmpty(err))
+                UnityEngine.Debug.LogError("PY ERR: " + err);
         }
     }
 
-    void StopPython()
+    private void StopPython()
     {
         try
         {
             if (pythonProcess != null && !pythonProcess.HasExited)
-            {
                 pythonProcess.Kill();
-            }
         }
         catch { }
+
+        pythonProcess = null;
     }
 }

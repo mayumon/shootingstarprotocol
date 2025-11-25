@@ -134,6 +134,9 @@ while True:
             state = "SHOT"
             last_shot_strength = charge_strength
             shot_timer = 30
+
+            print(f"SHOT {last_shot_strength}", flush=True)
+            sys.stdout.flush()
         else:
             state = "IDLE"
 
