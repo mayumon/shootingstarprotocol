@@ -1,0 +1,16 @@
+# unity generated
+New Unity Project/Library/
+New Unity Project/Temp/
+New Unity Project/Logs/
+New Unity Project/Obj/
+New Unity Project/UserSettings/
+
+# os / editor noise
+.DS_Store
+Thumbs.db
+
+# visual studio / rider stuff
+*.csproj
+*.sln
+*.user
+.vs/
